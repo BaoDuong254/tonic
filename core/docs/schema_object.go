@@ -134,6 +134,10 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 		t = t.Elem()
 	}
 
+	if t.Kind() == reflect.Interface {
+		return SchemaObject{}, nil
+	}
+
 	schema := SchemaObject{}
 	var err error
 	schema.Type, err = toSwaggerType(t)
@@ -380,7 +384,11 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 			}
 
 			validateTag := field.Tag.Get(validateKey)
-			parsingAttr := strings.Split(field.Tag.Get(parsingKey), ",")
+			rawTag := field.Tag.Get(parsingKey)
+			if rawTag == "-" {
+				continue
+			}
+			parsingAttr := strings.Split(rawTag, ",")
 			var fieldName string
 			if len(parsingAttr) == 0 || parsingAttr[0] == "" {
 				continue // Skip if no parsing attributes are provided
@@ -438,7 +446,7 @@ func toSwaggerType(t reflect.Type) (string, error) {
 		return "array", nil
 	case reflect.Map:
 		return "map", nil
-	case reflect.Struct, reflect.Interface:
+	case reflect.Struct:
 		return "object", nil
 	case reflect.Pointer:
 		return toSwaggerType(t.Elem())
