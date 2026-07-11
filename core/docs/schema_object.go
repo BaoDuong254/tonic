@@ -9,6 +9,12 @@ import (
 	"strings"
 )
 
+const (
+	swaggerTypeTag = "swaggertype"
+	formatTag      = "format"
+	exampleTag     = "example"
+)
+
 type Number struct{}
 type Integer struct{}
 
@@ -87,8 +93,8 @@ type SchemaObject struct {
 	ExternalDocs  *ExternalDocumentationObject `json:"externalDocs,omitempty"`
 
 	// Deprecated: Use examples instead
-	Example  any                           `json:"example,omitempty" validate:"omitempty"`
-	Examples map[string]ExampleOrReference `json:"examples,omitempty"`
+	Example  any   `json:"example,omitempty" validate:"omitempty"`
+	Examples []any `json:"examples,omitempty"`
 
 	Format           string `json:"format,omitempty"`
 	ContentMediaType string `json:"contentMediaType,omitempty"`
@@ -399,10 +405,25 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 				return schema, err
 			}
 
-			schema.Properties[fieldName], err = SchemaFromType(field.Type, parsingKey, validateKey, validateOptions)
+			var propSchema SchemaObject
+			if st := field.Tag.Get(swaggerTypeTag); st != "" {
+				propSchema, err = schemaFromSwaggerType(st, validateOptions)
+			} else {
+				propSchema, err = SchemaFromType(field.Type, parsingKey, validateKey, validateOptions)
+			}
 			if err != nil {
 				return schema, err
 			}
+
+			// explicit `format:"..."` overrides any reflection/validator-derived format
+			if f := field.Tag.Get(formatTag); f != "" {
+				propSchema.Format = f
+			}
+			// explicit `example:"..."` coerced to the property's JSON type
+			if ex, ok := field.Tag.Lookup(exampleTag); ok {
+				propSchema.Examples = []any{coerceExample(ex, propSchema.Type)}
+			}
+			schema.Properties[fieldName] = propSchema
 
 			if validateOptions != nil && validateOptions.Required {
 				schema.Required = append(schema.Required, fieldName)
@@ -453,4 +474,74 @@ func toSwaggerType(t reflect.Type) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported type: %s", t.Kind())
 	}
+}
+
+var swaggerTypeReflect = map[string]reflect.Type{
+	"string":  reflect.TypeOf(""),
+	"integer": reflect.TypeOf(int64(0)),
+	"number":  reflect.TypeOf(float64(0)),
+	"boolean": reflect.TypeOf(false),
+}
+
+func schemaFromSwaggerType(spec string, flag *ValidateFlag) (SchemaObject, error) {
+	parts := strings.Split(spec, ",")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+
+	switch parts[0] {
+	case "object":
+		return SchemaObject{Type: "object"}, nil
+	case "primitive":
+		if len(parts) < 2 {
+			return SchemaObject{}, fmt.Errorf("invalid swaggertype %q: missing primitive type", spec)
+		}
+		return schemaFromSwaggerPrimitive(parts[1], flag)
+	case "array":
+		if len(parts) < 2 {
+			return SchemaObject{}, fmt.Errorf("invalid swaggertype %q: missing array item type", spec)
+		}
+		item, err := schemaFromSwaggerPrimitive(parts[1], nil)
+		if err != nil {
+			return SchemaObject{}, err
+		}
+		schema := SchemaObject{Type: "array", Array: &Array{Items: &item}}
+		if flag != nil {
+			schema.Array.Bind(*flag)
+		}
+		return schema, nil
+	default:
+		return schemaFromSwaggerPrimitive(parts[0], flag)
+	}
+}
+
+func schemaFromSwaggerPrimitive(name string, flag *ValidateFlag) (SchemaObject, error) {
+	t, ok := swaggerTypeReflect[name]
+	if !ok {
+		return SchemaObject{}, fmt.Errorf("unsupported swaggertype %q", name)
+	}
+	schema, err := SchemaFromType(t, "", "", flag)
+	if err != nil {
+		return SchemaObject{}, err
+	}
+	schema.Format = ""
+	return schema, nil
+}
+
+func coerceExample(raw string, schemaType string) any {
+	switch schemaType {
+	case "integer":
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return v
+		}
+	case "number":
+		if v, err := strconv.ParseFloat(raw, 64); err == nil {
+			return v
+		}
+	case "boolean":
+		if v, err := strconv.ParseBool(raw); err == nil {
+			return v
+		}
+	}
+	return raw
 }

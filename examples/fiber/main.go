@@ -31,6 +31,9 @@ type CreateUserRequest struct {
 	Role      string `json:"role" validate:"required,oneof=admin manager member"`
 	Invite    bool   `json:"invite"`
 	RequestID string `header:"x-request-id" validate:"required,uuid4"`
+	Avatar    []byte `json:"avatar" swaggertype:"string" format:"base64" example:"U3dhZ2dlciByb2Nrcw=="`
+	Age       int    `json:"age" example:"30"`
+	Website   string `json:"website" format:"uri" example:"https://example.com"`
 }
 
 type UpdateUserSettingsRequest struct {
