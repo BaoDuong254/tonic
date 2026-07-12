@@ -138,13 +138,21 @@ func listUserOrders(c fiber.Ctx) error {
 func main() {
 	app := fiber.New()
 
-	schema := ftonic.New(&docs.OpenApi{
-		OpenAPI: docs.VERSION,
-		Info: docs.InfoObject{
-			Version: "1.0.0",
-			Title:   "Fiber Example API",
-		},
-	})
+	// core.Init builds the spec. To rename the schema-override tag keys
+	// (swaggertype/format/example) app-wide, pass core.WithTagConfig, e.g.:
+	//
+	//	spec := core.Init(core.WithTagConfig(docs.TagConfig{
+	//		SwaggerType: "swtype", Format: "fmt", Example: "eg",
+	//	}))
+	//
+	// then use those custom keys on struct fields. Empty fields keep the default
+	// key. This example keeps the defaults.
+	spec := core.Init()
+	spec.Info = docs.InfoObject{
+		Version: "1.0.0",
+		Title:   "Fiber Example API",
+	}
+	schema := ftonic.New(spec)
 	api := app.Group("/api/v1")
 	users := api.Group("/users")
 

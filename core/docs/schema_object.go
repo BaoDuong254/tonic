@@ -135,7 +135,7 @@ type SchemaOrReference struct {
 }
 
 // Gin framework use "binding" tag, for example: `binding:"required,min=1,max=10"`
-func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag *ValidateFlag) (SchemaObject, error) {
+func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag *ValidateFlag, tags TagConfig) (SchemaObject, error) {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
@@ -152,7 +152,7 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 	}
 	if schema.Type == "map" {
 		schema.Type = "object"
-		additionalProp, err := SchemaFromType(t.Elem(), parsingKey, validateKey, flag)
+		additionalProp, err := SchemaFromType(t.Elem(), parsingKey, validateKey, flag, tags)
 		if err != nil {
 			return schema, err
 		}
@@ -354,7 +354,7 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 			}
 		}
 	case "array":
-		s, err := SchemaFromType(t.Elem(), parsingKey, validateKey, nil)
+		s, err := SchemaFromType(t.Elem(), parsingKey, validateKey, nil, tags)
 		if err != nil {
 			return schema, err
 		}
@@ -380,7 +380,7 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 			field := t.Field(i)
 			// For embedded structs, we need to handle them differently
 			if field.Anonymous {
-				embeddedSchema, err := SchemaFromType(field.Type, parsingKey, validateKey, nil)
+				embeddedSchema, err := SchemaFromType(field.Type, parsingKey, validateKey, nil, tags)
 				if err != nil {
 					return schema, fmt.Errorf("create schema from type %s: %w", field.Type.String(), err)
 				}
@@ -406,21 +406,21 @@ func SchemaFromType(t reflect.Type, parsingKey string, validateKey string, flag 
 			}
 
 			var propSchema SchemaObject
-			if st := field.Tag.Get(swaggerTypeTag); st != "" {
-				propSchema, err = schemaFromSwaggerType(st, validateOptions)
+			if st := field.Tag.Get(tags.SwaggerType); st != "" {
+				propSchema, err = schemaFromSwaggerType(st, validateOptions, tags)
 			} else {
-				propSchema, err = SchemaFromType(field.Type, parsingKey, validateKey, validateOptions)
+				propSchema, err = SchemaFromType(field.Type, parsingKey, validateKey, validateOptions, tags)
 			}
 			if err != nil {
 				return schema, err
 			}
 
 			// explicit `format:"..."` overrides any reflection/validator-derived format
-			if f := field.Tag.Get(formatTag); f != "" {
+			if f := field.Tag.Get(tags.Format); f != "" {
 				propSchema.Format = f
 			}
 			// explicit `example:"..."` coerced to the property's JSON type
-			if ex, ok := field.Tag.Lookup(exampleTag); ok {
+			if ex, ok := field.Tag.Lookup(tags.Example); ok {
 				propSchema.Examples = []any{coerceExample(ex, propSchema.Type)}
 			}
 			schema.Properties[fieldName] = propSchema
@@ -483,7 +483,7 @@ var swaggerTypeReflect = map[string]reflect.Type{
 	"boolean": reflect.TypeOf(false),
 }
 
-func schemaFromSwaggerType(spec string, flag *ValidateFlag) (SchemaObject, error) {
+func schemaFromSwaggerType(spec string, flag *ValidateFlag, tags TagConfig) (SchemaObject, error) {
 	parts := strings.Split(spec, ",")
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
@@ -496,12 +496,12 @@ func schemaFromSwaggerType(spec string, flag *ValidateFlag) (SchemaObject, error
 		if len(parts) < 2 {
 			return SchemaObject{}, fmt.Errorf("invalid swaggertype %q: missing primitive type", spec)
 		}
-		return schemaFromSwaggerPrimitive(parts[1], flag)
+		return schemaFromSwaggerPrimitive(parts[1], flag, tags)
 	case "array":
 		if len(parts) < 2 {
 			return SchemaObject{}, fmt.Errorf("invalid swaggertype %q: missing array item type", spec)
 		}
-		item, err := schemaFromSwaggerPrimitive(parts[1], nil)
+		item, err := schemaFromSwaggerPrimitive(parts[1], nil, tags)
 		if err != nil {
 			return SchemaObject{}, err
 		}
@@ -511,16 +511,16 @@ func schemaFromSwaggerType(spec string, flag *ValidateFlag) (SchemaObject, error
 		}
 		return schema, nil
 	default:
-		return schemaFromSwaggerPrimitive(parts[0], flag)
+		return schemaFromSwaggerPrimitive(parts[0], flag, tags)
 	}
 }
 
-func schemaFromSwaggerPrimitive(name string, flag *ValidateFlag) (SchemaObject, error) {
+func schemaFromSwaggerPrimitive(name string, flag *ValidateFlag, tags TagConfig) (SchemaObject, error) {
 	t, ok := swaggerTypeReflect[name]
 	if !ok {
 		return SchemaObject{}, fmt.Errorf("unsupported swaggertype %q", name)
 	}
-	schema, err := SchemaFromType(t, "", "", flag)
+	schema, err := SchemaFromType(t, "", "", flag, tags)
 	if err != nil {
 		return SchemaObject{}, err
 	}

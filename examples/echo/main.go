@@ -140,13 +140,21 @@ func main() {
 	e := echo.New()
 	e.Validator = &utils.CustomValidator{Validator: validator.New()}
 
-	schema := etonic.New(&docs.OpenApi{
-		OpenAPI: docs.VERSION,
-		Info: docs.InfoObject{
-			Version: "1.0.0",
-			Title:   "Echo Example API",
-		},
-	})
+	// core.Init builds the spec. To rename the schema-override tag keys
+	// (swaggertype/format/example) app-wide, pass core.WithTagConfig, e.g.:
+	//
+	//	spec := core.Init(core.WithTagConfig(docs.TagConfig{
+	//		SwaggerType: "swtype", Format: "fmt", Example: "eg",
+	//	}))
+	//
+	// then use those custom keys on struct fields. Empty fields keep the default
+	// key. This example keeps the defaults.
+	spec := core.Init()
+	spec.Info = docs.InfoObject{
+		Version: "1.0.0",
+		Title:   "Echo Example API",
+	}
+	schema := etonic.New(spec)
 	api := e.Group("/api/v1")
 
 	etonic.For[GetUserRequest, UserDetailsResponse](schema).AddRoute(
